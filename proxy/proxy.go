@@ -208,19 +208,27 @@ func (p *Proxy) proxyResponse(w *ResponseWriter, r *ResponseReader, headers http
 	if !found {
 		return w.ReadFrom(r)
 	}
-	data := []byte{}
-	r.Reader.Read(data)
-	h32 := murmur3.New32()
-	_, err := h32.Write(data)
+
+	data, err := io.ReadAll(r.Reader)
 	if err != nil {
-		hash32 := int(h32.Sum32())
-		w.Header().Set("Content-Digest", fmt.Sprintf("murmur3%v", hash32))
+		return fmt.Errorf("read error: %s", err)
+	} else {
+		log.Printf("%v bytes read", len(data))
 	}
 
+	if len(data) > 128 {
+		h32 := murmur3.New32()
+		if _, err := h32.Write(data); err == nil {
+			hash32 := int(h32.Sum32())
+			hash64 := (int64(len(data)) << 32) | int64(hash32)
+			w.Header().Set("Content-Digest", fmt.Sprintf("%v", hash64))
+		}
+	}
 	w.setChunked()
 	if err := transcoder.Transcode(w, bytes.NewReader(data), headers); err != nil {
 		return fmt.Errorf("transcoding error: %s", err)
 	}
+
 	return nil
 }
 

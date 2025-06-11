@@ -3,6 +3,7 @@ package transcoder
 import (
 	"compress/gzip"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -21,6 +22,9 @@ type Zip struct {
 func (t *Zip) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Header) error {
 	shouldBrotli := false
 	shouldGzip := false
+	gzipped := w.Header().Get("Content-Encoding") == "gzip"
+	brotlied := w.Header().Get("Content-Encoding") == "br"
+	shouldCompress := !(gzipped || brotlied)
 	for _, v := range strings.Split(headers.Get("Accept-Encoding"), ", ") {
 		switch strings.SplitN(v, ";", 2)[0] {
 		case "br":
@@ -30,34 +34,36 @@ func (t *Zip) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Heade
 		}
 	}
 
+	log.Printf("br == %v , gzip == %v", shouldBrotli, shouldGzip)
+
 	// always gunzip if the client supports Brotli
-	if headers.Get("Content-Encoding") == "gzip" && (shouldBrotli || !t.SkipCompressed) {
+	if gzipped && (shouldBrotli || !t.SkipCompressed) {
 		gzr, err := gzip.NewReader(r)
 		if err != nil {
 			return err
 		}
 		defer gzr.Close()
 		r = gzr
-		headers.Del("Content-Encoding")
-		w.Header().Del("Content-Encoding")
+		shouldCompress = true
+		log.Printf("Found gzipped page")
 	}
 
-	if headers.Get("Content-Encoding") == "br" && !t.SkipCompressed {
+	if brotlied && !t.SkipCompressed {
 		brr := brotlidec.NewBrotliReader(r)
 		defer brr.Close()
 		r = brr
-		headers.Del("Content-Encoding")
-		w.Header().Del("Content-Encoding")
+		shouldCompress = true
 	}
 
-	if shouldBrotli && compress(headers) {
+	if shouldBrotli && shouldCompress {
 		params := brotlienc.NewBrotliParams()
 		params.SetQuality(t.BrotliCompressionLevel)
 		brw := brotlienc.NewBrotliWriter(params, w.Writer)
 		defer brw.Close()
 		w.Writer = brw
 		w.Header().Set("Content-Encoding", "br")
-	} else if shouldGzip && compress(headers) {
+		log.Printf("Compress to br")
+	} else if shouldGzip && shouldCompress {
 		gzw, err := gzip.NewWriterLevel(w.Writer, t.GzipCompressionLevel)
 		if err != nil {
 			return err
@@ -65,10 +71,8 @@ func (t *Zip) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Heade
 		defer gzw.Close()
 		w.Writer = gzw
 		w.Header().Set("Content-Encoding", "gzip")
+		log.Printf("Compress to gzip")
 	}
+	//return nil
 	return t.Transcoder.Transcode(w, r, headers)
-}
-
-func compress(headers http.Header) bool {
-	return headers.Get("Content-Encoding") == ""
 }
