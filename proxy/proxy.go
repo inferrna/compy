@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -14,6 +15,8 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/twmb/murmur3"
 )
 
 type Proxy struct {
@@ -28,7 +31,7 @@ type Proxy struct {
 }
 
 type Transcoder interface {
-	Transcode(*ResponseWriter, *ResponseReader, http.Header) error
+	Transcode(*ResponseWriter, io.Reader, http.Header) error
 }
 
 func New(host string, cert string) *Proxy {
@@ -205,8 +208,17 @@ func (p *Proxy) proxyResponse(w *ResponseWriter, r *ResponseReader, headers http
 	if !found {
 		return w.ReadFrom(r)
 	}
+	data := []byte{}
+	r.Reader.Read(data)
+	h32 := murmur3.New32()
+	_, err := h32.Write(data)
+	if err != nil {
+		hash32 := int(h32.Sum32())
+		w.Header().Set("Content-Digest", fmt.Sprintf("murmur3%v", hash32))
+	}
+
 	w.setChunked()
-	if err := transcoder.Transcode(w, r, headers); err != nil {
+	if err := transcoder.Transcode(w, bytes.NewReader(data), headers); err != nil {
 		return fmt.Errorf("transcoding error: %s", err)
 	}
 	return nil

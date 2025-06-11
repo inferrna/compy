@@ -1,12 +1,14 @@
 package transcoder
 
 import (
+	"io"
+	"net/http"
+
 	"github.com/barnacs/compy/proxy"
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/html"
 	"github.com/tdewolff/minify/v2/js"
-	"net/http"
 )
 
 type Minifier struct {
@@ -25,6 +27,6 @@ func NewMinifier() *Minifier {
 	}
 }
 
-func (t *Minifier) Transcode(w *proxy.ResponseWriter, r *proxy.ResponseReader, headers http.Header) error {
-	return t.m.Minify(r.ContentType(), w, r)
+func (t *Minifier) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Header) error {
+	return t.m.Minify(headers.Get("Content-Type"), w, r)
 }

@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"compress/gzip"
+	"io"
 	"net/http"
 	"strings"
 
@@ -17,7 +18,7 @@ type Zip struct {
 	SkipCompressed         bool
 }
 
-func (t *Zip) Transcode(w *proxy.ResponseWriter, r *proxy.ResponseReader, headers http.Header) error {
+func (t *Zip) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Header) error {
 	shouldBrotli := false
 	shouldGzip := false
 	for _, v := range strings.Split(headers.Get("Accept-Encoding"), ", ") {
@@ -30,33 +31,33 @@ func (t *Zip) Transcode(w *proxy.ResponseWriter, r *proxy.ResponseReader, header
 	}
 
 	// always gunzip if the client supports Brotli
-	if r.Header().Get("Content-Encoding") == "gzip" && (shouldBrotli || !t.SkipCompressed) {
-		gzr, err := gzip.NewReader(r.Reader)
+	if headers.Get("Content-Encoding") == "gzip" && (shouldBrotli || !t.SkipCompressed) {
+		gzr, err := gzip.NewReader(r)
 		if err != nil {
 			return err
 		}
 		defer gzr.Close()
-		r.Reader = gzr
-		r.Header().Del("Content-Encoding")
+		r = gzr
+		headers.Del("Content-Encoding")
 		w.Header().Del("Content-Encoding")
 	}
 
-	if r.Header().Get("Content-Encoding") == "br" && !t.SkipCompressed {
-		brr := brotlidec.NewBrotliReader(r.Reader)
+	if headers.Get("Content-Encoding") == "br" && !t.SkipCompressed {
+		brr := brotlidec.NewBrotliReader(r)
 		defer brr.Close()
-		r.Reader = brr
-		r.Header().Del("Content-Encoding")
+		r = brr
+		headers.Del("Content-Encoding")
 		w.Header().Del("Content-Encoding")
 	}
 
-	if shouldBrotli && compress(r) {
+	if shouldBrotli && compress(headers) {
 		params := brotlienc.NewBrotliParams()
 		params.SetQuality(t.BrotliCompressionLevel)
 		brw := brotlienc.NewBrotliWriter(params, w.Writer)
 		defer brw.Close()
 		w.Writer = brw
 		w.Header().Set("Content-Encoding", "br")
-	} else if shouldGzip && compress(r) {
+	} else if shouldGzip && compress(headers) {
 		gzw, err := gzip.NewWriterLevel(w.Writer, t.GzipCompressionLevel)
 		if err != nil {
 			return err
@@ -68,6 +69,6 @@ func (t *Zip) Transcode(w *proxy.ResponseWriter, r *proxy.ResponseReader, header
 	return t.Transcoder.Transcode(w, r, headers)
 }
 
-func compress(r *proxy.ResponseReader) bool {
-	return r.Header().Get("Content-Encoding") == ""
+func compress(headers http.Header) bool {
+	return headers.Get("Content-Encoding") == ""
 }

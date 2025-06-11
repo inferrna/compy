@@ -1,12 +1,14 @@
 package transcoder
 
 import (
-	"github.com/barnacs/compy/proxy"
+	"io"
 	"net/http"
+
+	"github.com/barnacs/compy/proxy"
 )
 
 type Identity struct{}
 
-func (i *Identity) Transcode(w *proxy.ResponseWriter, r *proxy.ResponseReader, headers http.Header) error {
+func (i *Identity) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Header) error {
 	return w.ReadFrom(r)
 }
