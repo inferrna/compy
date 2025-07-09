@@ -24,7 +24,10 @@ func (t *Zip) Transcode(w *proxy.ResponseWriter, r io.Reader, headers http.Heade
 	shouldGzip := false
 	gzipped := w.Header().Get("Content-Encoding") == "gzip"
 	brotlied := w.Header().Get("Content-Encoding") == "br"
-	shouldCompress := !(gzipped || brotlied)
+
+	compressed := w.Header().Get("Content-Encoding") != ""
+	shouldCompress := !compressed
+
 	for _, v := range strings.Split(headers.Get("Accept-Encoding"), ", ") {
 		switch strings.SplitN(v, ";", 2)[0] {
 		case "br":
